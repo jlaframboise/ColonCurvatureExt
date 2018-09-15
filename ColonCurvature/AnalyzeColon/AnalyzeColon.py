@@ -3,6 +3,7 @@ import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
+import numpy as np
 
 #
 # AnalyzeColon
@@ -69,6 +70,20 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout.addRow("Input Segmentation: ", self.inputSelector)
 
 
+    #
+    # input cut point selector
+    #
+    self.cutPointSelector = slicer.qMRMLNodeComboBox()
+    self.cutPointSelector.nodeTypes = ['vtkMRMLMarkupsFiducialNode']
+    self.cutPointSelector.selectNodeUponCreation = True
+    self.cutPointSelector.addEnabled = False
+    self.cutPointSelector.removeEnabled = False
+    self.cutPointSelector.noneEnabled = False
+    self.cutPointSelector.showHidden = False
+    self.cutPointSelector.showChildNodeTypes = False
+    self.cutPointSelector.setMRMLScene(slicer.mrmlScene)
+    self.cutPointSelector.setToolTip("Pick the cut points for the algorithm.")
+    parametersFormLayout.addRow("Input Cut Points: ", self.cutPointSelector)
 
 
     #
@@ -134,7 +149,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     logic = AnalyzeColonLogic()
     enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
     imageThreshold = self.imageThresholdSliderWidget.value
-    logic.run(self.inputSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, enableScreenshotsFlag)
+    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, enableScreenshotsFlag)
 
 #
 # AnalyzeColonLogic
@@ -254,6 +269,58 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     outFile.close()
     logging.info("Saved curvatures.")
 
+  def makeCutPointsFile(self, fidsNode):
+    outPath = r"C:\Users\jaker\Documents\CutPoints.txt"
+    fOut = open(outPath, 'w')
+    for x in range(2):
+      pos = np.zeros(3)
+      fidsNode.GetNthFiducialPosition(x, pos)
+      fOut.write('{},{},{}\n'.format(pos[0], pos[1], pos[2]))
+    fOut.close()
+
+  def addDetails(self, inPath, outPath): # TODO test that this works
+    '''A function that takes the path of a text file and creates a new text file with the point number,
+        and the percentage of how far the point is along the list. Easy to import to Excel'''
+    inFile = open(inPath, 'r')
+    lines = inFile.readlines()
+    inFile.close()
+    lines = [x.strip().split(', ') for x in lines]
+    outFile = open(outPath, 'w')
+    outFile.write(inPath[-26:] + "\n")
+    for count, item in enumerate(lines):
+        if item != '' and item != "\n" and item != ['']:
+            outFile.write(
+                '{}, {}, {}, {}, {}, {}'.format(count, count / (len(lines) - 2) * 100, item[1], item[2], item[3],
+                                                item[0]) + '\n')
+    outFile.close()
+
+  def getSumCurvatures(self, curvaturesList, width): # TODO test that this works
+    '''A function which takes a list, and it returns a new list of equal length, where each value corresponds
+    to the same indexed value in the first list, plus the all the items 'width' positions up and down the list.'''
+    sumList = []
+    for x in range(len(curvaturesList)):
+      subList = (curvaturesList[max(x - width, 0): min(x + width + 1, len(curvaturesList))])
+      subList = [float(y) for y in subList]
+      sumList.append(sum(subList))
+    return sumList
+
+  def addSumCurvaturesToDataFile(self, inPath, width=10): # TODO test that this works
+      '''A fucntion to modify a detailed data file with curvatures, by adding a column
+      that contains the sum of curvatures in a given interval for every point '''
+      fIn = open(inPath, 'r')
+      lines = fIn.readlines()
+      fIn.close()
+      title = lines[0].strip()
+      curvatureValues = [x.strip().split(', ')[5] for x in lines[1:]]
+      sumCurvatureValues = self.getSumCurvatures(curvatureValues, width)
+      newLines = [title] + [lines[x].strip() + ', ' + str(sumCurvatureValues[x - 1]) for x in
+                            range(1, len(sumCurvatureValues) + 1)]
+      fOut = open(inPath, 'w')
+      for line in newLines:
+          fOut.write(line + '\n')
+      fOut.close()
+
+
 
 
   def hasImageData(self,volumeNode):
@@ -319,7 +386,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     annotationLogic = slicer.modules.annotations.logic()
     annotationLogic.CreateSnapShot(name, description, type, 1, imageData)
 
-  def run(self, inputSegmentation, outputVolume, imageThreshold, enableScreenshots=0):
+  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, enableScreenshots=0):
     """
     Run the actual algorithm
     """
@@ -334,6 +401,10 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
     self.curveNode = self.fitCurve(self.centerPointsNode)
     self.makeCurvaturesFile(self.curveNode)
+    self.makeCutPointsFile(inputCutPoints) #working to here
+    self.addDetails(r"C:\Users\jaker\Documents\Curvatures.txt", r"C:\Users\jaker\Documents\CurvaturesData.txt")
+    self.addSumCurvaturesToDataFile(r"C:\Users\jaker\Documents\Curvatures.txt", 0)
+
 
     # Capture screenshot
     if enableScreenshots:
