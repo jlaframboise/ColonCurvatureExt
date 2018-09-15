@@ -54,10 +54,10 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout = qt.QFormLayout(parametersCollapsibleButton)
 
     #
-    # input volume selector
+    # input segmentation selector
     #
     self.inputSelector = slicer.qMRMLNodeComboBox()
-    self.inputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+    self.inputSelector.nodeTypes = ["vtkMRMLSegmentationNode"]
     self.inputSelector.selectNodeUponCreation = True
     self.inputSelector.addEnabled = False
     self.inputSelector.removeEnabled = False
@@ -66,7 +66,10 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.inputSelector.showChildNodeTypes = False
     self.inputSelector.setMRMLScene( slicer.mrmlScene )
     self.inputSelector.setToolTip( "Pick the input to the algorithm." )
-    parametersFormLayout.addRow("Input Volume: ", self.inputSelector)
+    parametersFormLayout.addRow("Input Segmentation: ", self.inputSelector)
+
+
+
 
     #
     # output volume selector
@@ -147,6 +150,112 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+
+  def convertSegmentationToBinaryLabelmap(self, segNode):
+    segmentation = segNode.GetSegmentation()
+    colSeg = None
+    notColSeg = None
+
+    for x in range(2):
+      segment = segmentation.GetNthSegment(x)
+      if len(segment.GetName()) < 7:
+        colSeg = segment
+      elif len(segment.GetName()) > 6:
+        notColSeg = segment
+
+    segmentation.RemoveSegment(notColSeg)
+
+    colonBinLabelMapNode = slicer.vtkMRMLLabelMapVolumeNode()
+    slicer.mrmlScene.AddNode(colonBinLabelMapNode)
+    slicer.vtkSlicerSegmentationsModuleLogic.ExportAllSegmentsToLabelmapNode(segNode, colonBinLabelMapNode)
+    logging.info('Removed non colon, created binary labelmap.')
+    return colonBinLabelMapNode
+
+
+  def genCenterPoints(self, binLabelMapNode, tag='Sup'):
+    pars = {}
+    pars["InputImageFileName"] = binLabelMapNode.GetID()
+    # create a markups fiducial node and name it, set it as the output
+    fidsOut = slicer.vtkMRMLMarkupsFiducialNode()
+    fidsOut.SetName('TEST0007_{}CenterPoints'.format(tag))
+    slicer.mrmlScene.AddNode(fidsOut)
+    pars["OutputFiducialsFileName"] = fidsOut.GetID()
+
+    pars['NumberOfPoints'] = 600
+
+    imgOut = slicer.vtkMRMLLabelMapVolumeNode()
+    imgOut.SetName('TEST0007_OutputImg')
+    slicer.mrmlScene.AddNode(imgOut)
+    pars['OutputImageFileName'] = imgOut.GetID()
+    logging.info('Created pars, running extract skeleton')
+
+    # run the module with parameters
+    extractor = slicer.modules.extractskeleton
+    slicer.cli.runSync(extractor, None, pars)
+    logging.info('Extracted Skeleton.')
+    return fidsOut
+
+  def fitCurve(self, fidsNode):
+    '''A function to return a curve model from a fiducial list node
+    with specific parameters for this project. '''
+    logging.info('Fitting curve to center points...')
+    markupsToModelNode = slicer.vtkMRMLMarkupsToModelNode()
+    markupsToModelNode.SetName('MyMarkupsToModelNode')
+    slicer.mrmlScene.AddNode(markupsToModelNode)
+
+    markupsToModelNode.SetAndObserveInputNodeID(fidsNode.GetID())
+
+    outputCurveNode = slicer.vtkMRMLModelNode()
+    slicer.mrmlScene.AddNode(outputCurveNode)
+    outputCurveNode.SetName(fidsNode.GetName()[:-17] + 'Curve')
+
+    markupsToModelNode.SetAndObserveModelNodeID(outputCurveNode.GetID())
+    markupsToModelNode.SetModelType(1)
+    markupsToModelNode.SetModelType(1)
+    markupsToModelNode.SetCurveType(3)
+    markupsToModelNode.SetPolynomialFitType(1)
+    markupsToModelNode.SetPolynomialOrder(2)
+    markupsToModelNode.SetPolynomialSampleWidth(0.05)
+    markupsToModelNode.SetTubeRadius(0)
+    logging.info('Fitted curve to center points. ')
+
+    return outputCurveNode
+
+
+  def makeCurvaturesFile(self, curveNode):
+    logging.info("Computing and writing curvatures...")
+    polyData = curveNode.GetPolyData()
+    import CurveMaker
+    CurveMaker.CurveMakerLogic()
+    curvatureArray = vtk.vtkDoubleArray()
+
+    avgCurve, minCurve, maxCurve = CurveMaker.CurveMakerLogic().computeCurvatures(polyData, curvatureArray)
+
+    polyData.GetPointData().AddArray(curvatureArray)
+    curveDisplayNode = curveNode.GetDisplayNode()
+
+    curveDisplayNode.SetActiveScalarName('Curvature')
+    curveDisplayNode.SetScalarVisibility(1)
+
+    curvatureList = [curvatureArray.GetTuple1(x) for x in range(curvatureArray.GetNumberOfTuples())]
+    stringCurvatureList = [str(x) for x in curvatureList]
+
+    points = polyData.GetPoints()
+    pointList = [points.GetPoint(x) for x in range(points.GetNumberOfPoints())]
+
+    newLines = [stringCurvatureList[x] + ', ' + str(pointList[x][0]) + ', ' + str(pointList[x][1]) + ', ' + str(
+      pointList[x][2]) + '\n' for x in range(len(pointList))]
+    newLines.append("\n")
+
+    outPath = r"C:\Users\jaker\Documents\Curvatures.txt"
+    print(outPath)
+    outFile = open(outPath, 'w')
+    outFile.writelines(newLines)
+    outFile.close()
+    logging.info("Saved curvatures.")
+
+
+
   def hasImageData(self,volumeNode):
     """This is an example logic method that
     returns true if the passed in volume
@@ -210,20 +319,21 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     annotationLogic = slicer.modules.annotations.logic()
     annotationLogic.CreateSnapShot(name, description, type, 1, imageData)
 
-  def run(self, inputVolume, outputVolume, imageThreshold, enableScreenshots=0):
+  def run(self, inputSegmentation, outputVolume, imageThreshold, enableScreenshots=0):
     """
     Run the actual algorithm
     """
 
-    if not self.isValidInputOutputData(inputVolume, outputVolume):
+    if not self.isValidInputOutputData(inputSegmentation, outputVolume):
       slicer.util.errorDisplay('Input volume is the same as output volume. Choose a different output volume.')
       return False
 
     logging.info('Processing started')
 
-    # Compute the thresholded output volume using the Threshold Scalar Volume CLI module
-    cliParams = {'InputVolume': inputVolume.GetID(), 'OutputVolume': outputVolume.GetID(), 'ThresholdValue' : imageThreshold, 'ThresholdType' : 'Above'}
-    cliNode = slicer.cli.run(slicer.modules.thresholdscalarvolume, None, cliParams, wait_for_completion=True)
+    self.binLabelMapNode = self.convertSegmentationToBinaryLabelmap(inputSegmentation)
+    self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
+    self.curveNode = self.fitCurve(self.centerPointsNode)
+    self.makeCurvaturesFile(self.curveNode)
 
     # Capture screenshot
     if enableScreenshots:
