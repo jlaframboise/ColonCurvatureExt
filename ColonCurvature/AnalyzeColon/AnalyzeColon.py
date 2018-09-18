@@ -294,6 +294,13 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     # print('Out MAX: ', newMaxList)
     return newMinList, newMaxList
 
+  def unitVector(self, vec):
+    return vec / np.linalg.norm(vec)
+
+  def angleBetween(self, v1, v2):
+    v1U = self.unitVector(v1)
+    v2U = self.unitVector(v2)
+    return np.arccos(np.clip(np.dot(v1U, v2U), -1.0, 1.0))
 
   # ------------------- process functions -------------------------------------
 
@@ -442,7 +449,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       lines = fIn.readlines()
       fIn.close()
       title = lines[0].strip()
-      print(lines)
+
       curvatureValues = [x.strip().split(', ')[5] for x in lines[1:]]
       sumCurvatureValues = self.getSumCurvatures(curvatureValues, width)
       newLines = [title] + [lines[x].strip() + ', ' + str(sumCurvatureValues[x - 1]) for x in
@@ -486,8 +493,72 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     fOut.close()
 
 
+  def addDegreeChangesToFile(self, inPath):
+    '''This function look at every max, and makes a sublist of itself, and the minimums on either side.
+    it then akes a tangent at each minimum, and compares the change in angle from one to the other,
+    saying that the line curves that x degrees over the straight line distance from Min to Min. '''
+    fIn = open(inPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    title = lines[0].strip()
+    curvatureValues = [x.strip().split(', ')[5] for x in lines[1:]]
+    numVals = [x.strip().split(', ')[0] for x in lines[1:]]
+    maxMinTypes = [x.strip().split(', ')[7] for x in lines[1:]]
+    coords = [(x.strip().split(', ')[2], x.strip().split(', ')[3], x.strip().split(', ')[4]) for x in lines[1:]]
 
+    extremePoints = []
+    maxPlaces = []
+    for y in range(len(lines) - 1):
+      if maxMinTypes[y] == 'MAX' or maxMinTypes[y] == 'MIN':
+        extremePoints.append((coords[y][0], coords[y][1], coords[y][2], maxMinTypes[y], numVals[y]))
 
+    angleChangeList = []
+    for x in range(1, len(extremePoints) - 1):
+      subList = [extremePoints[x - 1], extremePoints[x], extremePoints[x + 1]]
+
+      if subList[1][3] == 'MAX':
+        leftMinForwardPointNum = int(subList[0][4]) + 2
+        rightMinBackwardPointNum = int(subList[2][4]) - 2
+        leftMinForwardPointCoords = np.array(
+          [float(coords[leftMinForwardPointNum][0]), float(coords[leftMinForwardPointNum][1]),
+          float(coords[leftMinForwardPointNum][2])])
+        rightMinBackwardPointCoords = np.array(
+          [float(coords[rightMinBackwardPointNum][0]), float(coords[rightMinBackwardPointNum][1]),
+          float(coords[rightMinBackwardPointNum][2])])
+
+        vecPosList = [np.array([float(z[0]), float(z[1]), float(z[2])]) for z in subList]
+
+        vecOne = leftMinForwardPointCoords - vecPosList[0]
+        vecTwo = vecPosList[2] - rightMinBackwardPointCoords
+
+        vecThree = vecPosList[2] - vecPosList[0]
+        angleChange = self.angleBetween(vecOne, vecTwo) * 180 / np.pi
+        straightDist = np.linalg.norm(vecThree)
+
+        angleChangeList.append((subList[1][4], angleChange, straightDist))
+
+    # print(angleChangeList)
+    angleChangeValues = []
+    straightDistValues = []
+    numList = [int(x[0]) for x in angleChangeList]
+
+    for i in range(len(lines) - 1):
+      if i in numList:
+        for x in angleChangeList:
+          if int(x[0]) == i:
+            angleChangeValues.append(x[1])
+            straightDistValues.append(x[2])
+      else:
+        angleChangeValues.append('0')
+        straightDistValues.append('0')
+
+    newLines = [title] + [
+      lines[x].strip() + ', ' + str(angleChangeValues[x - 1]) + ', ' + str(straightDistValues[x - 1]) for x in
+      range(1, len(angleChangeValues) + 1)]
+    fOut = open(inPath, 'w')
+    for line in newLines:
+      fOut.write(line + '\n')
+    fOut.close()
 
 
 
@@ -573,6 +644,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.addDetails(r"C:\Users\jaker\Documents\Curvatures.txt", r"C:\Users\jaker\Documents\CurvaturesData.txt")
     self.addSumCurvaturesToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0) # TODO fix hardcode
     self.addSumCurvatureMaxMinsToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0, 1, 1.5)
+    self.addDegreeChangesToFile(r"C:\Users\jaker\Documents\CurvaturesData.txt")
 
     # Capture screenshot
     if enableScreenshots:
