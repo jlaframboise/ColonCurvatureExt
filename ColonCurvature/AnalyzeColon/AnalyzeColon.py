@@ -1,9 +1,13 @@
+from __future__ import division
 import os
 import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
 import numpy as np
+from operator import itemgetter
+
+
 
 #
 # AnalyzeColon
@@ -165,6 +169,133 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+  # -------------- tool functions ---------------------------
+
+  def findLocalMaximas(self, inList, minDist=0, threshold=0):
+    '''A function to return a list of the local maximas of an input list. '''
+    avgCurvature = np.mean(inList)
+    localMaximas = []
+    for x in range(1, len(inList) - 1):
+      currentThreeList = inList[x - 1:x + 2]
+      if currentThreeList[0] < currentThreeList[1] and currentThreeList[1] > currentThreeList[2] and currentThreeList[
+        1] > avgCurvature * threshold:
+        localMaximas.append((x + 1, currentThreeList[1]))
+    # reprocess localMaximas:
+    '''reprocessing will iterate through the list and find clusters of max points,
+    where there is achain of points with less than minDist between them, and this procedss replaces this
+    chain with a single point, in the middle of where the chain was. '''
+    newLocalMaximas = []
+    closePointsList = []
+    addedOne = False
+    for x, i in enumerate(localMaximas[:-1]):
+      if not addedOne:
+        if len(closePointsList) == 0:
+          pass
+        elif len(closePointsList) < 2:
+          newLocalMaximas.append(closePointsList[0])
+          closePointsList = []
+        elif len(closePointsList) > 1:
+          newLocalMaximas.append(closePointsList[len(closePointsList) // 2])
+          closePointsList = []
+      addedOne = False
+      if closePointsList == []:
+        closePointsList = [i]
+      if localMaximas[x + 1][0] - i[0] < minDist:
+        closePointsList.append(localMaximas[x + 1])
+        addedOne = True
+    newLocalMaximas.append(localMaximas[-1])
+    return newLocalMaximas
+
+  def findLocalMinimas(self, inList, minDist=0, threshold=0):
+    '''A function to return a list of the local minimas of an input list. '''
+    avgCurvature = np.mean(inList)
+    localMinimas = []
+    for x in range(1, len(inList) - 1):
+      currentThreeList = inList[x - 1:x + 2]
+      if currentThreeList[0] > currentThreeList[1] and currentThreeList[1] < currentThreeList[2] and currentThreeList[
+        1] < avgCurvature / (threshold + 0.001):
+        localMinimas.append((x + 1, currentThreeList[1]))
+    # reprocess localMinimas:
+    '''reprocessing will iterate through the list and find clusters of max points,
+    where there is achain of points with less than minDist between them, and this procedss replaces this
+    chain with a single point, in the middle of where the chain was. '''
+    newLocalMinimas = []
+    closePointsList = []
+    addedOne = False
+    for x, i in enumerate(localMinimas[:-1]):
+      if not addedOne:
+        if len(closePointsList) == 0:
+          pass
+        elif len(closePointsList) < 2:
+          newLocalMinimas.append(closePointsList[0])
+          closePointsList = []
+        elif len(closePointsList) > 1:
+          newLocalMinimas.append(closePointsList[len(closePointsList) // 2])
+          closePointsList = []
+      addedOne = False
+      if closePointsList == []:
+        closePointsList = [i]
+      if localMinimas[x + 1][0] - i[0] < minDist:
+        closePointsList.append(localMinimas[x + 1])
+        addedOne = True
+    newLocalMinimas.append(localMinimas[-1])
+    return newLocalMinimas
+
+  def unCluster(self, minList, maxList, curvatures):
+    '''A function which takes a list of maximum points, a list of minimum points, and it looks for
+    clusters of maximuns uninterupted with minimums, or vice versa. It replaces those clusters with a single
+    point at the center of where the cluster was. Essentially, a better version of the reprocessing section of the
+    in the find local maxima function. '''
+    # print('In Whole Set: ' , curvatures)
+    # print('In MIN: ' , minList)
+    # print('In MAX: ' , maxList)
+    newMinList = []
+    newMaxList = []
+    extremeList = []
+
+    # make a sorted list of 3key tuples, where the last item identifies max/min
+    for x in maxList:
+      extremeList.append((x[0], x[1], 'MAX'))
+    for x in minList:
+      extremeList.append((x[0], x[1], 'MIN'))
+    extremeList.sort(key=itemgetter(0))
+
+    running = True
+    count = 0
+    while running:
+      if count >= len(extremeList):
+        break
+      subList = [extremeList[count]]
+      # look ahead as far as possible
+      for x in range(1, len(curvatures)):
+        # print(extremeList[count+x][2])
+        # print(extremeList[count][2])
+        # if the xth item after the first item is the same type (max/min)
+        if count + x < len(extremeList) and extremeList[count + x][2] == extremeList[count][2]:
+          subList.append(extremeList[count + x])
+        else:  # if the next item is a different type (max/min)
+          numberList = [int(z[0]) for z in subList]
+          middleNumber = int(round(np.mean(numberList)))
+
+          middlePoint = (middleNumber, curvatures[middleNumber - 1], extremeList[count][2])
+          if middlePoint[2] == 'MAX':
+            newMaxList.append(middlePoint)
+          else:
+            newMinList.append(middlePoint)
+          count += len(subList) - 1
+          # print(subList)
+          break
+      count += 1
+
+    # remove the third item in the tuples
+    newMinList = [(i[0], i[1]) for i in newMinList]
+    newMaxList = [(i[0], i[1]) for i in newMaxList]
+    # print('Out MIN: ', newMinList)
+    # print('Out MAX: ', newMaxList)
+    return newMinList, newMaxList
+
+
+  # ------------------- process functions -------------------------------------
 
   def convertSegmentationToBinaryLabelmap(self, segNode):
     segmentation = segNode.GetSegmentation()
@@ -290,8 +421,8 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     for count, item in enumerate(lines):
         if item != '' and item != "\n" and item != ['']:
             outFile.write(
-                '{}, {}, {}, {}, {}, {}'.format(count, count / (len(lines) - 2) * 100, item[1], item[2], item[3],
-                                                item[0]) + '\n')
+                '{}, {}, {}, {}, {}, {}'.format(count,  100 * count / (len(lines) - 2), item[1], item[2], item[3], # TODO the % of length stat is not working, is zero every time it was giving jut  integers, not float.
+                                                item[0]) + '\n') # it was count / (len(lines) - 2) * 100
     outFile.close()
 
   def getSumCurvatures(self, curvaturesList, width): # TODO test that this works
@@ -311,6 +442,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       lines = fIn.readlines()
       fIn.close()
       title = lines[0].strip()
+      print(lines)
       curvatureValues = [x.strip().split(', ')[5] for x in lines[1:]]
       sumCurvatureValues = self.getSumCurvatures(curvatureValues, width)
       newLines = [title] + [lines[x].strip() + ', ' + str(sumCurvatureValues[x - 1]) for x in
@@ -319,6 +451,42 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       for line in newLines:
           fOut.write(line + '\n')
       fOut.close()
+
+  def addSumCurvatureMaxMinsToDataFile(self, inPath, minPointDist=0, threshold=1, minThresholdBoost=1.5):
+    '''A function to add a column to the data file whihc indicates if the point is at a max or a min. '''
+    fIn = open(inPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    title = lines[0].strip()
+    sumCurvatureValues = [x.strip().split(', ')[6] for x in lines[1:]]
+    sumCurvatureValues = [float(y) for y in sumCurvatureValues]
+    locMaximas = self.findLocalMaximas(sumCurvatureValues, minPointDist, threshold)
+    locMinimas = self.findLocalMinimas(sumCurvatureValues, minPointDist,
+                                  threshold * minThresholdBoost)  # The minimas are currently being held at a higher threshold so the maximas are unClustered more.
+
+    # print('Calling unCluster!')
+    locMinimas, locMaximas = self.unCluster(locMinimas, locMaximas, sumCurvatureValues)
+
+    # xVals = [x.strip().split(', ')[0] for x in lines[1:]]
+    # xVals = [int(x) for x in xVals]
+    locExtremesColumn = []
+    for x in range(1, len(lines)):
+      t = (x, sumCurvatureValues[x - 1])
+      if t in locMaximas:
+        locExtremesColumn.append('MAX')
+      elif t in locMinimas:
+        locExtremesColumn.append('MIN')
+      else:
+        locExtremesColumn.append('0')
+    newLines = [title] + [lines[x].strip() + ', ' + str(locExtremesColumn[x - 1]) for x in
+                          range(1, len(locExtremesColumn) + 1)]
+    fOut = open(inPath, 'w')
+    for line in newLines:
+      fOut.write(line + '\n')
+    fOut.close()
+
+
+
 
 
 
@@ -403,8 +571,8 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.makeCurvaturesFile(self.curveNode)
     self.makeCutPointsFile(inputCutPoints) #working to here
     self.addDetails(r"C:\Users\jaker\Documents\Curvatures.txt", r"C:\Users\jaker\Documents\CurvaturesData.txt")
-    self.addSumCurvaturesToDataFile(r"C:\Users\jaker\Documents\Curvatures.txt", 0)
-
+    self.addSumCurvaturesToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0) # TODO fix hardcode
+    self.addSumCurvatureMaxMinsToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0, 1, 1.5)
 
     # Capture screenshot
     if enableScreenshots:
