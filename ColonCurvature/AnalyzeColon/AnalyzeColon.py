@@ -106,6 +106,12 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     parametersFormLayout.addRow("Output Volume: ", self.outputSelector)
 
     #
+    # a text input field for the input of patient's path. get path with self.displayText
+    #
+    self.textInputBox = qt.QLineEdit()
+    parametersFormLayout.addRow("Patient Path", self.textInputBox)
+
+    #
     # threshold value
     #
     self.imageThresholdSliderWidget = ctk.ctkSliderWidget()
@@ -124,6 +130,11 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.enableScreenshotsFlagCheckBox.setToolTip("If checked, take screen shots for tutorials. Use Save Data to write them to disk.")
     parametersFormLayout.addRow("Enable Screenshots", self.enableScreenshotsFlagCheckBox)
 
+
+
+
+
+
     #
     # Apply Button
     #
@@ -136,6 +147,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.applyButton.connect('clicked(bool)', self.onApplyButton)
     self.inputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
     self.outputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
+    # self.textInputBox.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect())
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -147,13 +159,13 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     pass
 
   def onSelect(self):
-    self.applyButton.enabled = self.inputSelector.currentNode() and self.outputSelector.currentNode()
+    self.applyButton.enabled = self.inputSelector.currentNode() and self.outputSelector.currentNode() and len(self.textInputBox.displayText)>0
 
   def onApplyButton(self):
     logic = AnalyzeColonLogic()
     enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
     imageThreshold = self.imageThresholdSliderWidget.value
-    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, enableScreenshotsFlag)
+    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, self.textInputBox.displayText, enableScreenshotsFlag)
 
 #
 # AnalyzeColonLogic
@@ -400,7 +412,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       pointList[x][2]) + '\n' for x in range(len(pointList))]
     newLines.append("\n")
 
-    outPath = r"C:\Users\jaker\Documents\Curvatures.txt"
+    outPath = self.curvaturesPath
     print(outPath)
     outFile = open(outPath, 'w')
     outFile.writelines(newLines)
@@ -408,7 +420,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     logging.info("Saved curvatures.")
 
   def makeCutPointsFile(self, fidsNode):
-    outPath = r"C:\Users\jaker\Documents\CutPoints.txt"
+    outPath = self.cutPointsPath
     fOut = open(outPath, 'w')
     for x in range(2):
       pos = np.zeros(3)
@@ -428,7 +440,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     for count, item in enumerate(lines):
         if item != '' and item != "\n" and item != ['']:
             outFile.write(
-                '{}, {}, {}, {}, {}, {}'.format(count,  100 * count / (len(lines) - 2), item[1], item[2], item[3], # TODO the % of length stat is not working, is zero every time it was giving jut  integers, not float.
+                '{}, {}, {}, {}, {}, {}'.format(count,  100 * count / (len(lines) - 2), item[1], item[2], item[3],
                                                 item[0]) + '\n') # it was count / (len(lines) - 2) * 100
     outFile.close()
 
@@ -560,6 +572,317 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       fOut.write(line + '\n')
     fOut.close()
 
+  def splitDataFileToFiles(self, inDataPath, inCutPointsPath):
+    '''A function to take a data file, and a file containing the coords of two fiducials
+    representing the cut points, first being ascending and second being descending,
+    and create three new data files as the result of splitting the large data file at
+    the two cut points. '''
+
+    fIn = open(inDataPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    title = lines[0].strip()
+    lines2 = lines[1:]
+    numVals = [x.strip().split(', ')[0] for x in lines[1:]]
+    maxMinTypes = [x.strip().split(', ')[7] for x in lines[1:]]
+    coords = [(x.strip().split(', ')[2], x.strip().split(', ')[3], x.strip().split(', ')[4]) for x in lines[1:]]
+
+    fIn = open(inCutPointsPath, 'r')
+    cutPointOne = fIn.readline().strip().split(',')
+    cutPointTwo = fIn.readline().strip().split(',')
+    fIn.close()
+
+    outAcDataPath = inDataPath[:-8] + 'AcData.txt'
+    outTcDataPath = inDataPath[:-8] + 'TcData.txt'
+    outDcDataPath = inDataPath[:-8] + 'DcData.txt'
+
+    cutPointOne = np.array([float(x) for x in cutPointOne])
+    cutPointTwo = np.array([float(x) for x in cutPointTwo])
+
+    minDist = 1000000
+    closestPointNum = None
+    for x in range(len(coords)):
+      pos = np.array([float(coords[x][0]), float(coords[x][1]), float(coords[x][2])])
+
+      cutPointToCenterPoint = np.subtract(pos, cutPointOne)
+      dist = np.linalg.norm(cutPointToCenterPoint)
+      if dist < minDist:
+        closestPointNum = x
+        minDist = dist
+    closestPointNumToCutOne = closestPointNum
+
+    minDist = 1000000
+    closestPointNum = None
+    for x in range(len(coords)):
+      pos = np.array([float(coords[x][0]), float(coords[x][1]), float(coords[x][2])])
+
+      cutPointToCenterPoint = np.subtract(pos, cutPointTwo)
+      dist = np.linalg.norm(cutPointToCenterPoint)
+      if dist < minDist:
+        closestPointNum = x
+        minDist = dist
+    closestPointNumToCutTwo = closestPointNum
+
+    ascendingLines = lines2[:closestPointNumToCutOne]
+    transverseLines = lines2[closestPointNumToCutOne:closestPointNumToCutTwo]
+    descendingLines = lines2[closestPointNumToCutTwo:]
+
+    # REVERSE data file if it is backwards
+    if not transverseLines:
+      lines2 = lines2[::-1]
+      numVals = [x.strip().split(', ')[0] for x in lines2[1:]]
+      maxMinTypes = [x.strip().split(', ')[7] for x in lines2[1:]]
+      coords = [(x.strip().split(', ')[2], x.strip().split(', ')[3], x.strip().split(', ')[4]) for x in lines2[1:]]
+
+      minDist = 1000000
+      closestPointNum = None
+      for x in range(len(coords)):
+        pos = np.array([float(coords[x][0]), float(coords[x][1]), float(coords[x][2])])
+
+        cutPointToCenterPoint = np.subtract(pos, cutPointOne)
+        dist = np.linalg.norm(cutPointToCenterPoint)
+        if dist < minDist:
+          closestPointNum = x
+          minDist = dist
+      closestPointNumToCutOne = closestPointNum
+
+      minDist = 1000000
+      closestPointNum = None
+      for x in range(len(coords)):
+        pos = np.array([float(coords[x][0]), float(coords[x][1]), float(coords[x][2])])
+
+        cutPointToCenterPoint = np.subtract(pos, cutPointTwo)
+        dist = np.linalg.norm(cutPointToCenterPoint)
+        if dist < minDist:
+          closestPointNum = x
+          minDist = dist
+      closestPointNumToCutTwo = closestPointNum
+
+      ascendingLines = lines2[:closestPointNumToCutOne]
+      transverseLines = lines2[closestPointNumToCutOne:closestPointNumToCutTwo]
+      descendingLines = lines2[closestPointNumToCutTwo:]
+
+    acOut = open(outAcDataPath, 'w')
+    acOut.write(title + '\n')
+    for line in ascendingLines:
+      acOut.write(line)
+    acOut.close()
+
+    tcOut = open(outTcDataPath, 'w')
+    tcOut.write(title + '\n')
+    for line in transverseLines:
+      tcOut.write(line)
+    tcOut.close()
+
+    dcOut = open(outDcDataPath, 'w')
+    dcOut.write(title + '\n')
+    for line in descendingLines:
+      dcOut.write(line)
+    dcOut.close()
+
+  def getStats(dataInPath):
+    '''A function that takes a created data file, and calculates certain statistics
+    which it outputs to a results data file'''
+    fIn = open(dataInPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    dataOutPath = dataInPath[:-4] + 'Results.txt'
+    title = lines[0].strip()
+    curvatureValues = [float(x.strip().split(', ')[5]) for x in lines[1:]]
+    maxMinTypes = [x.strip().split(', ')[7] for x in lines[1:]]
+    maxDegrees = [float(x.strip().split(', ')[8]) for x in lines[1:]]
+    maxDistances = [float(x.strip().split(', ')[9]) for x in lines[1:]]
+
+    meanCuvature = np.mean(curvatureValues)
+    medianCurvature = np.median(curvatureValues)
+    stanDevCurvature = np.std(curvatureValues)
+    varianceCurvature = np.var(curvatureValues)
+    totalCurvature = sum(curvatureValues)
+
+    curveNumbers = []
+    for x in range(len(maxMinTypes)):
+      if maxMinTypes[x] == 'MAX' and maxDegrees[x] > 0:
+        curveNumbers.append(x)
+
+    allCurveDegrees = []
+    allCurveDistances = []
+    allCurveRatios = []
+
+    lessThan20Deg = []
+    lessThan40Deg = []
+    lessThan60Deg = []
+    lessThan80Deg = []
+    lessThan100Deg = []
+    lessThan120Deg = []
+    lessThan140Deg = []
+    lessThan160Deg = []
+    lessThan180Deg = []
+
+    allCurves = []
+
+    for x in curveNumbers:
+      allCurveDegrees.append(maxDegrees[x])
+      allCurveDistances.append(maxDistances[x])
+      allCurveRatios.append(maxDegrees[x] / maxDistances[x])
+
+      if maxDegrees[x] < 20:
+        lessThan20Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 40:
+        lessThan40Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 60:
+        lessThan60Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 80:
+        lessThan80Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 100:
+        lessThan100Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 120:
+        lessThan120Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 140:
+        lessThan140Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 160:
+        lessThan160Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+      elif maxDegrees[x] < 180:
+        lessThan180Deg.append((maxDegrees[x], maxDistances[x], maxDegrees[x] / maxDistances[x]))
+
+      allCurves.append((x, maxDegrees[x] / maxDistances[x], maxDegrees[x], maxDistances[x]))
+
+    allCurves = sorted(allCurves, key=itemgetter(1))
+
+    lessThan20DegDists = [str(x[1]) for x in sorted(lessThan20Deg, key=itemgetter(1))]
+    lessThan40DegDists = [str(x[1]) for x in sorted(lessThan40Deg, key=itemgetter(1))]
+    lessThan60DegDists = [str(x[1]) for x in sorted(lessThan60Deg, key=itemgetter(1))]
+    lessThan80DegDists = [str(x[1]) for x in sorted(lessThan80Deg, key=itemgetter(1))]
+    lessThan100DegDists = [str(x[1]) for x in sorted(lessThan100Deg, key=itemgetter(1))]
+    lessThan120DegDists = [str(x[1]) for x in sorted(lessThan120Deg, key=itemgetter(1))]
+    lessThan140DegDists = [str(x[1]) for x in sorted(lessThan140Deg, key=itemgetter(1))]
+    lessThan160DegDists = [str(x[1]) for x in sorted(lessThan160Deg, key=itemgetter(1))]
+    lessThan180DegDists = [str(x[1]) for x in sorted(lessThan180Deg, key=itemgetter(1))]
+
+    if lessThan20Deg:
+      lessThan20DegAvgDist = np.mean([float(x[1]) for x in lessThan20Deg])
+    else:
+      lessThan20DegAvgDist = 0
+
+    if lessThan40Deg:
+      lessThan40DegAvgDist = np.mean([float(x[1]) for x in lessThan40Deg])
+    else:
+      lessThan40DegAvgDist = 0
+
+    if lessThan60Deg:
+      lessThan60DegAvgDist = np.mean([float(x[1]) for x in lessThan60Deg])
+    else:
+      lessThan60DegAvgDist = 0
+
+    if lessThan80Deg:
+      lessThan80DegAvgDist = np.mean([float(x[1]) for x in lessThan80Deg])
+    else:
+      lessThan80DegAvgDist = 0
+
+    if lessThan100Deg:
+      lessThan100DegAvgDist = np.mean([float(x[1]) for x in lessThan100Deg])
+    else:
+      lessThan100DegAvgDist = 0
+
+    if lessThan120Deg:
+      lessThan120DegAvgDist = np.mean([float(x[1]) for x in lessThan120Deg])
+    else:
+      lessThan120DegAvgDist = 0
+
+    if lessThan140Deg:
+      lessThan140DegAvgDist = np.mean([float(x[1]) for x in lessThan140Deg])
+    else:
+      lessThan140DegAvgDist = 0
+
+    if lessThan160Deg:
+      lessThan160DegAvgDist = np.mean([float(x[1]) for x in lessThan160Deg])
+    else:
+      lessThan160DegAvgDist = 0
+
+    if lessThan180Deg:
+      lessThan180DegAvgDist = np.mean([float(x[1]) for x in lessThan180Deg])
+    else:
+      lessThan180DegAvgDist = 0
+
+    meanCurveDegrees = np.mean(allCurveDegrees)
+    meanCurveDistance = np.mean(allCurveDistances)
+    medianCurveDegrees = np.median(allCurveDegrees)
+    medianCurveDistance = np.median(allCurveDistances)
+
+    linesOut = []
+    linesOut.append('Mean Curvature, {}'.format(meanCuvature))
+    linesOut.append('Median Curvature, {}'.format(medianCurvature))
+    # linesOut.append('Mode Curvature, {}'.format(modeCurvature))
+    linesOut.append('Total Curvature, {}'.format(totalCurvature))
+    linesOut.append('Standard Dev of Curvature, {}'.format(stanDevCurvature))
+    linesOut.append('Variance of Curvature, {}'.format(varianceCurvature))
+    linesOut.append('')
+
+    linesOut.append('Number of Curves, {}'.format(len(allCurveDegrees)))
+    linesOut.append('Number of Points, {}'.format(len(curvatureValues)))
+    linesOut.append('Mean Degrees of Curve, {}'.format(meanCurveDegrees))
+    linesOut.append('Median Degrees of Curve, {}'.format(medianCurveDegrees))
+    linesOut.append('Mean Distance of Curve, {}'.format(meanCurveDistance))
+    linesOut.append('Median Distance of Curve, {}'.format(medianCurveDistance))
+    linesOut.append('')
+
+    linesOut.append('Number of curves < 20deg, {}'.format(len(lessThan20Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan20DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan20DegDists)))
+
+    linesOut.append('Number of curves < 40deg, {}'.format(len(lessThan40Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan40DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan40DegDists)))
+
+    linesOut.append('Number of curves < 60deg, {}'.format(len(lessThan60Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan60DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan60DegDists)))
+
+    linesOut.append('Number of curves < 80deg, {}'.format(len(lessThan80Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan80DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan80DegDists)))
+
+    linesOut.append('Number of curves < 100deg, {}'.format(len(lessThan100Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan100DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan100DegDists)))
+
+    linesOut.append('Number of curves < 120deg, {}'.format(len(lessThan120Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan120DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan120DegDists)))
+
+    linesOut.append('Number of curves < 140deg, {}'.format(len(lessThan140Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan140DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan140DegDists)))
+
+    linesOut.append('Number of curves < 160deg, {}'.format(len(lessThan160Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan160DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan160DegDists)))
+
+    linesOut.append('Number of curves < 180deg, {}'.format(len(lessThan180Deg)))
+    linesOut.append('Mean Distance of Curves ^, {}'.format(str(lessThan180DegAvgDist)))
+    linesOut.append('Curve Distances, {}'.format(' '.join(lessThan180DegDists)))
+    linesOut.append('')
+
+    linesOut.append('All Curves Sorted by Degrees/Distance,')
+    linesOut.append('{}, {}, {}, {}'.format('Deg/Dist', 'Num', 'Deg', 'Dist'))
+    for curve in allCurves:
+      linesOut.append('{}, {}, {}, {}'.format(curve[1], curve[0], curve[2], curve[3]))
+
+    fOut = open(dataOutPath, 'w')
+    for line in linesOut:
+      fOut.write(line)
+      fOut.write('\n')
+
+    fOut.close()
+
+
+
+
+
+
+
+
+
+
 
 
   def hasImageData(self,volumeNode):
@@ -625,7 +948,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     annotationLogic = slicer.modules.annotations.logic()
     annotationLogic.CreateSnapShot(name, description, type, 1, imageData)
 
-  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, enableScreenshots=0):
+  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, pathText, enableScreenshots=0):
     """
     Run the actual algorithm
     """
@@ -636,15 +959,33 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
     logging.info('Processing started')
 
+    self.patientFolder = pathText
+    self.patId = self.patientFolder[-8:]
+    self.mode = 'Sup'
+    self.cutPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CutPoints.txt')
+    self.curvaturesPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'Curvatures.txt')
+    self.curvaturesDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesData.txt')
+
     self.binLabelMapNode = self.convertSegmentationToBinaryLabelmap(inputSegmentation)
     self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
     self.curveNode = self.fitCurve(self.centerPointsNode)
     self.makeCurvaturesFile(self.curveNode)
-    self.makeCutPointsFile(inputCutPoints) #working to here
-    self.addDetails(r"C:\Users\jaker\Documents\Curvatures.txt", r"C:\Users\jaker\Documents\CurvaturesData.txt")
-    self.addSumCurvaturesToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0) # TODO fix hardcode
-    self.addSumCurvatureMaxMinsToDataFile(r"C:\Users\jaker\Documents\CurvaturesData.txt", 0, 1, 1.5)
-    self.addDegreeChangesToFile(r"C:\Users\jaker\Documents\CurvaturesData.txt")
+    self.makeCutPointsFile(inputCutPoints)
+
+
+
+
+    self.addDetails(self.curvaturesPath, self.curvaturesDataPath)
+    self.addSumCurvaturesToDataFile(self.curvaturesDataPath, 0) # TODO fix hardcode
+    self.addSumCurvatureMaxMinsToDataFile(self.curvaturesDataPath, 0, 1, 1.5)
+    self.addDegreeChangesToFile(self.curvaturesDataPath)
+    #above is tested
+    self.splitDataFileToFiles(self.curvaturesDataPath, self.cutPointsPath)
+
+
+
+
+
 
     # Capture screenshot
     if enableScreenshots:
