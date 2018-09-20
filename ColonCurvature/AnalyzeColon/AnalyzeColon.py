@@ -117,21 +117,21 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     #
     # threshold value
     #
-    self.imageThresholdSliderWidget = ctk.ctkSliderWidget()
-    self.imageThresholdSliderWidget.singleStep = 0.1
-    self.imageThresholdSliderWidget.minimum = -100
-    self.imageThresholdSliderWidget.maximum = 100
-    self.imageThresholdSliderWidget.value = 0.5
-    self.imageThresholdSliderWidget.setToolTip("Set threshold value for computing the output image. Voxels that have intensities lower than this value will set to zero.")
-    parametersFormLayout.addRow("Image threshold", self.imageThresholdSliderWidget)
+    #self.imageThresholdSliderWidget = ctk.ctkSliderWidget()
+    #self.imageThresholdSliderWidget.singleStep = 0.1
+    #self.imageThresholdSliderWidget.minimum = -100
+    #self.imageThresholdSliderWidget.maximum = 100
+    #self.imageThresholdSliderWidget.value = 0.5
+    #self.imageThresholdSliderWidget.setToolTip("Set threshold value for computing the output image. Voxels that have intensities lower than this value will set to zero.")
+    #parametersFormLayout.addRow("Image threshold", self.imageThresholdSliderWidget)
 
     #
     # check box to trigger taking screen shots for later use in tutorials
     #
-    self.enableScreenshotsFlagCheckBox = qt.QCheckBox()
-    self.enableScreenshotsFlagCheckBox.checked = 0
-    self.enableScreenshotsFlagCheckBox.setToolTip("If checked, take screen shots for tutorials. Use Save Data to write them to disk.")
-    parametersFormLayout.addRow("Enable Screenshots", self.enableScreenshotsFlagCheckBox)
+    #self.enableScreenshotsFlagCheckBox = qt.QCheckBox()
+    #self.enableScreenshotsFlagCheckBox.checked = 0
+    #self.enableScreenshotsFlagCheckBox.setToolTip("If checked, take screen shots for tutorials. Use Save Data to write them to disk.")
+    #parametersFormLayout.addRow("Enable Screenshots", self.enableScreenshotsFlagCheckBox)
 
 
 
@@ -166,9 +166,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
 
   def onApplyButton(self):
     logic = AnalyzeColonLogic()
-    enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
-    imageThreshold = self.imageThresholdSliderWidget.value
-    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, self.textInputBox.displayText, self.tagInputBox.displayText, enableScreenshotsFlag)
+    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), self.textInputBox.displayText, self.tagInputBox.displayText)
 
 #
 # AnalyzeColonLogic
@@ -951,7 +949,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     annotationLogic = slicer.modules.annotations.logic()
     annotationLogic.CreateSnapShot(name, description, type, 1, imageData)
 
-  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, pathText, tagType, enableScreenshots=0):
+  def run(self, inputSegmentation, inputCutPoints, outputVolume, pathText, tagType):
     """
     Run the actual algorithm
     """
@@ -971,17 +969,21 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.curvaturesAcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesAcData.txt')
     self.curvaturesTcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesTcData.txt')
     self.curvaturesDcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesDcData.txt')
+    self.centerPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CenterPoints.fcsv')
+    self.curvePath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'Curve.vtk')
+
 
 
 
     self.binLabelMapNode = self.convertSegmentationToBinaryLabelmap(inputSegmentation)
     self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
+    slicer.util.saveNode(self.centerPointsNode, self.centerPointsPath)
+
     self.curveNode = self.fitCurve(self.centerPointsNode)
+    slicer.util.saveNode(self.curveNode, self.curvePath)
+
     self.makeCurvaturesFile(self.curveNode)
     self.makeCutPointsFile(inputCutPoints)
-
-
-
 
     self.addDetails(self.curvaturesPath, self.curvaturesDataPath)
     self.addSumCurvaturesToDataFile(self.curvaturesDataPath, 0) # TODO fix hardcode
@@ -1001,14 +1003,6 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
 
 
-
-
-
-
-
-    # Capture screenshot
-    if enableScreenshots:
-      self.takeScreenshot('AnalyzeColonTest-Start','MyScreenshot',-1)
 
     logging.info('Processing completed')
 
