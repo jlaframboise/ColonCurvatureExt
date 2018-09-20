@@ -111,6 +111,9 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.textInputBox = qt.QLineEdit()
     parametersFormLayout.addRow("Patient Path", self.textInputBox)
 
+    self.tagInputBox = qt.QLineEdit()
+    parametersFormLayout.addRow("Scan type (Sup, Pro): ", self.tagInputBox)
+
     #
     # threshold value
     #
@@ -165,7 +168,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     logic = AnalyzeColonLogic()
     enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
     imageThreshold = self.imageThresholdSliderWidget.value
-    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, self.textInputBox.displayText, enableScreenshotsFlag)
+    logic.run(self.inputSelector.currentNode(), self.cutPointSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, self.textInputBox.displayText, self.tagInputBox.displayText, enableScreenshotsFlag)
 
 #
 # AnalyzeColonLogic
@@ -680,7 +683,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       dcOut.write(line)
     dcOut.close()
 
-  def getStats(dataInPath):
+  def getStats(self, dataInPath):
     '''A function that takes a created data file, and calculates certain statistics
     which it outputs to a results data file'''
     fIn = open(dataInPath, 'r')
@@ -948,7 +951,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     annotationLogic = slicer.modules.annotations.logic()
     annotationLogic.CreateSnapShot(name, description, type, 1, imageData)
 
-  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, pathText, enableScreenshots=0):
+  def run(self, inputSegmentation, inputCutPoints, outputVolume, imageThreshold, pathText, tagType, enableScreenshots=0):
     """
     Run the actual algorithm
     """
@@ -961,10 +964,15 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
     self.patientFolder = pathText
     self.patId = self.patientFolder[-8:]
-    self.mode = 'Sup'
+    self.mode = tagType
     self.cutPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CutPoints.txt')
     self.curvaturesPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'Curvatures.txt')
     self.curvaturesDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesData.txt')
+    self.curvaturesAcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesAcData.txt')
+    self.curvaturesTcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesTcData.txt')
+    self.curvaturesDcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesDcData.txt')
+
+
 
     self.binLabelMapNode = self.convertSegmentationToBinaryLabelmap(inputSegmentation)
     self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
@@ -981,6 +989,17 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.addDegreeChangesToFile(self.curvaturesDataPath)
     #above is tested
     self.splitDataFileToFiles(self.curvaturesDataPath, self.cutPointsPath)
+
+    self.getStats(self.curvaturesDataPath)
+    self.getStats(self.curvaturesAcDataPath)
+    self.getStats(self.curvaturesTcDataPath)
+    self.getStats(self.curvaturesDcDataPath)
+
+
+
+
+
+
 
 
 
