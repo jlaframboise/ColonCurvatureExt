@@ -315,6 +315,50 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     v2U = self.unitVector(v2)
     return np.arccos(np.clip(np.dot(v1U, v2U), -1.0, 1.0))
 
+  def addFiducialsOnCurvatureMaximums(self, inPath):
+    '''A function to take the path of the curvatures data file, and generate slicer fiducials on the model to verify'''
+    fIn = open(inPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    xVals = []
+    yVals = []
+    zVals = []
+    for x in range(1, len(lines)):
+      if lines[x].strip().split(', ')[7] == 'MAX':
+        xVals.append(lines[x].strip().split(', ')[2])
+        yVals.append(lines[x].strip().split(', ')[3])
+        zVals.append(lines[x].strip().split(', ')[4])
+    m = slicer.vtkMRMLMarkupsFiducialNode()
+    m.SetName(self.maximumPointsName)
+    slicer.mrmlScene.AddNode(m)
+    slicer.util.saveNode(m, self.maximumPointsPath)
+
+    for i in range(len(xVals)):
+      m.AddFiducial(float(xVals[i]), float(yVals[i]), float(zVals[i]))
+
+  def addFiducialsOnCurvatureMinimums(self, inPath):
+    '''A function to take the path of the curvatures data file, and generate slicer fiducials
+    on the model's extreme values to verify'''
+    fIn = open(inPath, 'r')
+    lines = fIn.readlines()
+    fIn.close()
+    xVals = []
+    yVals = []
+    zVals = []
+
+    for x in range(1, len(lines)):
+      if lines[x].strip().split(', ')[7] == 'MIN':
+        xVals.append(lines[x].strip().split(', ')[2])
+        yVals.append(lines[x].strip().split(', ')[3])
+        zVals.append(lines[x].strip().split(', ')[4])
+    m = slicer.vtkMRMLMarkupsFiducialNode()
+    m.SetName(self.minimumPointsName)
+    slicer.mrmlScene.AddNode(m)
+    slicer.util.saveNode(m, self.minimumPointsPath)
+
+    for i in range(len(xVals)):
+      m.AddFiducial(float(xVals[i]), float(yVals[i]), float(zVals[i]))
+
   # ------------------- process functions -------------------------------------
 
   def convertSegmentationToBinaryLabelmap(self, segNode):
@@ -373,7 +417,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
     outputCurveNode = slicer.vtkMRMLModelNode()
     slicer.mrmlScene.AddNode(outputCurveNode)
-    outputCurveNode.SetName(fidsNode.GetName()[:-17] + 'Curve')
+    outputCurveNode.SetName(self.curveName)
 
     markupsToModelNode.SetAndObserveModelNodeID(outputCurveNode.GetID())
     markupsToModelNode.SetModelType(1)
@@ -970,7 +1014,13 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.curvaturesTcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesTcData.txt')
     self.curvaturesDcDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesDcData.txt')
     self.centerPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CenterPoints.fcsv')
+    self.curveName = self.patId + '_' + 'Curve'
     self.curvePath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'Curve.vtk')
+    self.maximumPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'MaxPoints.fcsv')
+    self.minimumPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'MinPoints.fcsv')
+    self.maximumPointsName = self.patId + '_' + self.mode + 'MaxPoints'
+    self.minimumPointsName = self.patId + '_' + self.mode + 'MinPoints'
+
 
 
 
@@ -980,9 +1030,10 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     slicer.util.saveNode(self.centerPointsNode, self.centerPointsPath)
 
     self.curveNode = self.fitCurve(self.centerPointsNode)
-    slicer.util.saveNode(self.curveNode, self.curvePath)
+
 
     self.makeCurvaturesFile(self.curveNode)
+    slicer.util.saveNode(self.curveNode, self.curvePath)
     self.makeCutPointsFile(inputCutPoints)
 
     self.addDetails(self.curvaturesPath, self.curvaturesDataPath)
@@ -996,6 +1047,9 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     self.getStats(self.curvaturesAcDataPath)
     self.getStats(self.curvaturesTcDataPath)
     self.getStats(self.curvaturesDcDataPath)
+
+    self.addFiducialsOnCurvatureMaximums(self.curvaturesDataPath)
+    self.addFiducialsOnCurvatureMinimums(self.curvaturesDataPath)
 
 
 
