@@ -26,8 +26,9 @@ and will make a comparison file of all the important stats between supine and pr
 """
     self.parent.helpText += self.getDefaultModuleDocumentationLink()
     self.parent.acknowledgementText = """
-This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
-and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
+This extension was developed by Jacob Laframboise, Perk Lab.
+This extension relies on the Extract Skeleton Module, the Markups to Model module,
+and the Curve Maker Module.
 """ # replace with organization, grant and thanks.
 
 #
