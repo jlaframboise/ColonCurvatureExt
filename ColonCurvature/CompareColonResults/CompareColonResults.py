@@ -116,7 +116,7 @@ class CompareColonResultsWidget(ScriptedLoadableModuleWidget):
     # a text input field for the input of patient's path. get path with self.displayText
     #
     self.pathListInputBox = qt.QLineEdit()
-    parametersFormLayout.addRow("Patient Paths", self.textInputBox)
+    parametersFormLayout.addRow("Patient Paths", self.pathListInputBox)
 
     #
     # Apply Button
@@ -132,8 +132,7 @@ class CompareColonResultsWidget(ScriptedLoadableModuleWidget):
     # Add vertical spacer
     self.layout.addStretch(1)
 
-    # Refresh Apply button state
-    self.onSelect()
+
 
   def cleanup(self):
     pass
@@ -288,7 +287,7 @@ class CompareColonResultsLogic(ScriptedLoadableModuleLogic):
 
 
 
-  def run(self, pathList,):
+  def run(self, pathList):
     """
     Run the actual algorithm
     """
@@ -297,10 +296,12 @@ class CompareColonResultsLogic(ScriptedLoadableModuleLogic):
     logging.info('Processing started')
 
     self.pathList = pathList.split()
-    self.direc = pathList[0][:-8]
-    self.outPath = self.direc + 'Summary.txt'
+    self.pathList = [x[1:-1] for x in self.pathList]
+    self.directory = self.pathList[0]
+    self.outPath = os.path.join(self.directory, 'Summary.txt')
 
-    logging.info(self.pathList[0])
+    self.doFinalAverageComparison(self.pathList, self.outPath)
+
     logging.info(self.outPath)
 
     #self.doFinalAverageComparison(self.pathList, self.outPath)
