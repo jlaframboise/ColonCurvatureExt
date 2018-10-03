@@ -304,8 +304,6 @@ class CompareColonResultsLogic(ScriptedLoadableModuleLogic):
 
     logging.info(self.outPath)
 
-    #self.doFinalAverageComparison(self.pathList, self.outPath)
-
 
 
 
