@@ -21,6 +21,7 @@ include(${Slicer_USE_FILE})
 # Extension modules
 add_subdirectory(AnalyzeColon)
 add_subdirectory(PatientComparison)
+add_subdirectory(CompareColonResults)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------
