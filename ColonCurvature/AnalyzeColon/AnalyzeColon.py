@@ -21,12 +21,19 @@ class AnalyzeColon(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
     self.parent.title = "AnalyzeColon" # TODO make this more human readable by adding spaces
-    self.parent.categories = ["Examples"]
+    self.parent.categories = ["Colon Analysis"]
     self.parent.dependencies = []
-    self.parent.contributors = ["John Doe (AnyWare Corp.)"] # replace with "Firstname Lastname (Organization)"
+    self.parent.contributors = ["Jacob Laframboise (Perk Lab)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
-This is an example of scripted loadable module bundled in an extension.
-It performs a simple thresholding on the input volume and optionally captures a screenshot.
+This module is part of the work done to comparatively analyze the curvature of patients colons.
+This module will take in the nodes for a segmentation of a colon,
+a fiducial node containing a cut point at the ascending and descending colon,
+an output volume, a box to past the patients data folder path into, 
+and a box to type the tag 'Sup' or 'Pro' into to identify the tpe of scan.
+It will generate a set of points along the curve (with Extract Skeleton),
+Fit a curve to the points (with Markups to Model),
+Find the curvature at every point (with Curve Maker),
+And analyze the data to generate statistics.  
 """
     self.parent.helpText += self.getDefaultModuleDocumentationLink()
     self.parent.acknowledgementText = """

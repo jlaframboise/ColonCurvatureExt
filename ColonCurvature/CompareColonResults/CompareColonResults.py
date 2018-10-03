@@ -74,12 +74,14 @@ class CompareColonResults(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
     self.parent.title = "CompareColonResults" # TODO make this more human readable by adding spaces
-    self.parent.categories = ["Examples"]
+    self.parent.categories = ["Colon Analysis"]
     self.parent.dependencies = []
-    self.parent.contributors = ["John Doe (AnyWare Corp.)"] # replace with "Firstname Lastname (Organization)"
+    self.parent.contributors = ["Jacob Laframboise (Perk Lab)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
-This is an example of scripted loadable module bundled in an extension.
-It performs a simple thresholding on the input volume and optionally captures a screenshot.
+This module is part of the work done to comparatively analyze the curvature of patients colons.
+This module takes in a list of quotations bound paths separated by spaces,
+where each path is to the data folder of a patient with a supine and prone scan.
+It creates a summary file which draws comparisons from all of them. 
 """
     self.parent.helpText += self.getDefaultModuleDocumentationLink()
     self.parent.acknowledgementText = """
