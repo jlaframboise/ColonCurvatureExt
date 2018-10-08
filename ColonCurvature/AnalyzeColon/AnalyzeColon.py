@@ -99,7 +99,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
 
 
     #
-    # output volume selector
+    # output volume selector # TODO remove this aspect of the GUI and autocreate a volume.
     #
     self.outputSelector = slicer.qMRMLNodeComboBox()
     self.outputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
@@ -122,29 +122,6 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.tagInputBox = qt.QLineEdit()
     parametersFormLayout.addRow("Scan type (Sup, Pro): ", self.tagInputBox)
 
-    #
-    # threshold value
-    #
-    #self.imageThresholdSliderWidget = ctk.ctkSliderWidget()
-    #self.imageThresholdSliderWidget.singleStep = 0.1
-    #self.imageThresholdSliderWidget.minimum = -100
-    #self.imageThresholdSliderWidget.maximum = 100
-    #self.imageThresholdSliderWidget.value = 0.5
-    #self.imageThresholdSliderWidget.setToolTip("Set threshold value for computing the output image. Voxels that have intensities lower than this value will set to zero.")
-    #parametersFormLayout.addRow("Image threshold", self.imageThresholdSliderWidget)
-
-    #
-    # check box to trigger taking screen shots for later use in tutorials
-    #
-    #self.enableScreenshotsFlagCheckBox = qt.QCheckBox()
-    #self.enableScreenshotsFlagCheckBox.checked = 0
-    #self.enableScreenshotsFlagCheckBox.setToolTip("If checked, take screen shots for tutorials. Use Save Data to write them to disk.")
-    #parametersFormLayout.addRow("Enable Screenshots", self.enableScreenshotsFlagCheckBox)
-
-
-
-
-
 
     #
     # Apply Button
@@ -158,7 +135,7 @@ class AnalyzeColonWidget(ScriptedLoadableModuleWidget):
     self.applyButton.connect('clicked(bool)', self.onApplyButton)
     self.inputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
     self.outputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-    # self.textInputBox.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect())
+    # self.textInputBox.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect) # TODO enable apply button w valid input
 
     # Add vertical spacer
     self.layout.addStretch(1)
@@ -195,36 +172,52 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
   def findLocalMaximas(self, inList, minDist=0, threshold=0):
     '''A function to return a list of the local maximas of an input list. '''
     avgCurvature = np.mean(inList)
+
+    # create a list of local maximas, provided each maxima is > avg curvature
     localMaximas = []
     for x in range(1, len(inList) - 1):
       currentThreeList = inList[x - 1:x + 2]
+      # ex. in [1,2,1], 2 is a max. In [2.333, 2, 1], 2 is not a max
       if currentThreeList[0] < currentThreeList[1] and currentThreeList[1] > currentThreeList[2] and currentThreeList[
         1] > avgCurvature * threshold:
         localMaximas.append((x + 1, currentThreeList[1]))
+
+
     # reprocess localMaximas:
     '''reprocessing will iterate through the list and find clusters of max points,
-    where there is achain of points with less than minDist between them, and this procedss replaces this
+    where there is a chain of points with less than minDist between them, and this process replaces this
     chain with a single point, in the middle of where the chain was. '''
     newLocalMaximas = []
     closePointsList = []
     addedOne = False
     for x, i in enumerate(localMaximas[:-1]):
+
       if not addedOne:
+
         if len(closePointsList) == 0:
           pass
+
+        # if there are no maximas close by, add the current max to the new list
         elif len(closePointsList) < 2:
           newLocalMaximas.append(closePointsList[0])
           closePointsList = []
+
+        # if the close points list has multiple maximums, only return the middle point
         elif len(closePointsList) > 1:
           newLocalMaximas.append(closePointsList[len(closePointsList) // 2])
           closePointsList = []
+
       addedOne = False
+
       if closePointsList == []:
         closePointsList = [i]
+
       if localMaximas[x + 1][0] - i[0] < minDist:
         closePointsList.append(localMaximas[x + 1])
         addedOne = True
+
     newLocalMaximas.append(localMaximas[-1])
+
     return newLocalMaximas
 
   def findLocalMinimas(self, inList, minDist=0, threshold=0):
@@ -1006,15 +999,20 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     Run the actual algorithm
     """
 
+    # if the input is not valid, do not run and tell the user # TODO fix the criteria for valid and invalid input
     if not self.isValidInputOutputData(inputSegmentation, outputVolume):
       slicer.util.errorDisplay('Input volume is the same as output volume. Choose a different output volume.')
       return False
 
     logging.info('Processing started')
 
+    # get the path and key words to name and find files
     self.patientFolder = pathText
     self.patId = self.patientFolder[-8:]
     self.mode = tagType
+
+    # use the directory path and keyword to name each type of file that will need to be created
+    # paths will be used to write to file, names will be used to name nodes in scene
     self.cutPointsPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CutPoints.txt')
     self.curvaturesPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'Curvatures.txt')
     self.curvaturesDataPath = os.path.join(self.patientFolder, self.patId + '_' + self.mode + 'CurvaturesData.txt')
@@ -1032,38 +1030,41 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
 
 
-
+    # convert the segmentation to a binary labelmap
     self.binLabelMapNode = self.convertSegmentationToBinaryLabelmap(inputSegmentation)
+
+    # get the centerpoints through the binary label map via Extract Skeleton
     self.centerPointsNode = self.genCenterPoints(self.binLabelMapNode, 'Sup')
+    # save the centerpoints to file
     slicer.util.saveNode(self.centerPointsNode, self.centerPointsPath)
 
+    # use Markups to Model to fit a curve to the centerpoints
     self.curveNode = self.fitCurve(self.centerPointsNode)
 
-
+    # use Curve Maker to get all point curvatures and save them to a text file
     self.makeCurvaturesFile(self.curveNode)
+    # save the curve model to file
     slicer.util.saveNode(self.curveNode, self.curvePath)
     self.makeCutPointsFile(inputCutPoints)
 
+    # takes the curvatures file and adds various columns to the curvature data files
     self.addDetails(self.curvaturesPath, self.curvaturesDataPath)
     self.addSumCurvaturesToDataFile(self.curvaturesDataPath, 0) # TODO fix hardcode
     self.addSumCurvatureMaxMinsToDataFile(self.curvaturesDataPath, 0, 1, 1.5)
     self.addDegreeChangesToFile(self.curvaturesDataPath)
-    #above is tested
+
+    # split the main data file to data files corresponding to individual segments.
     self.splitDataFileToFiles(self.curvaturesDataPath, self.cutPointsPath)
 
+    # retrieve key stats from data files
     self.getStats(self.curvaturesDataPath)
     self.getStats(self.curvaturesAcDataPath)
     self.getStats(self.curvaturesTcDataPath)
     self.getStats(self.curvaturesDcDataPath)
 
+    # add the fiducials on the computed max/mins to the scene
     self.addFiducialsOnCurvatureMaximums(self.curvaturesDataPath)
     self.addFiducialsOnCurvatureMinimums(self.curvaturesDataPath)
-
-
-
-
-
-
 
 
     logging.info('Processing completed')
