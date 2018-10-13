@@ -260,14 +260,12 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     clusters of maximuns uninterupted with minimums, or vice versa. It replaces those clusters with a single
     point at the center of where the cluster was. Essentially, a better version of the reprocessing section of the
     in the find local maxima function. '''
-    # print('In Whole Set: ' , curvatures)
-    # print('In MIN: ' , minList)
-    # print('In MAX: ' , maxList)
+
     newMinList = []
     newMaxList = []
     extremeList = []
 
-    # make a sorted list of 3key tuples, where the last item identifies max/min
+    # make a sorted list of 3 key tuples, where the last item identifies max/min
     for x in maxList:
       extremeList.append((x[0], x[1], 'MAX'))
     for x in minList:
@@ -277,41 +275,48 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     running = True
     count = 0
     while running:
+      # break if all points were checked
       if count >= len(extremeList):
         break
       subList = [extremeList[count]]
       # look ahead as far as possible
       for x in range(1, len(curvatures)):
-        # print(extremeList[count+x][2])
-        # print(extremeList[count][2])
+
         # if the xth item after the first item is the same type (max/min)
         if count + x < len(extremeList) and extremeList[count + x][2] == extremeList[count][2]:
           subList.append(extremeList[count + x])
+
         else:  # if the next item is a different type (max/min)
+
+          # get the mean point number of the neighboring max/mins
           numberList = [int(z[0]) for z in subList]
           middleNumber = int(round(np.mean(numberList)))
 
+          # set the middle point at the middlemost extreme point
           middlePoint = (middleNumber, curvatures[middleNumber - 1], extremeList[count][2])
+
+          # add new extreme value to new list of points
           if middlePoint[2] == 'MAX':
             newMaxList.append(middlePoint)
           else:
             newMinList.append(middlePoint)
           count += len(subList) - 1
-          # print(subList)
+
           break
       count += 1
 
-    # remove the third item in the tuples
+    # remove the third item (min, max id) in the tuples
     newMinList = [(i[0], i[1]) for i in newMinList]
     newMaxList = [(i[0], i[1]) for i in newMaxList]
-    # print('Out MIN: ', newMinList)
-    # print('Out MAX: ', newMaxList)
+
     return newMinList, newMaxList
 
   def unitVector(self, vec):
+    '''A function to return the unit vector in the direction of a numpy paramter vector. '''
     return vec / np.linalg.norm(vec)
 
   def angleBetween(self, v1, v2):
+    '''A function to return the angle between two input numpy vectors'''
     v1U = self.unitVector(v1)
     v2U = self.unitVector(v2)
     return np.arccos(np.clip(np.dot(v1U, v2U), -1.0, 1.0))
@@ -321,19 +326,25 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     fIn = open(inPath, 'r')
     lines = fIn.readlines()
     fIn.close()
+    # lists to hold coordinates
     xVals = []
     yVals = []
     zVals = []
+
+    # for every maximum in the file, add the coords
     for x in range(1, len(lines)):
       if lines[x].strip().split(', ')[7] == 'MAX':
         xVals.append(lines[x].strip().split(', ')[2])
         yVals.append(lines[x].strip().split(', ')[3])
         zVals.append(lines[x].strip().split(', ')[4])
+
+    # create a node to hold fiducials
     m = slicer.vtkMRMLMarkupsFiducialNode()
     m.SetName(self.maximumPointsName)
     slicer.mrmlScene.AddNode(m)
     slicer.util.saveNode(m, self.maximumPointsPath)
 
+    # add a fiducial at each coordinate location
     for i in range(len(xVals)):
       m.AddFiducial(float(xVals[i]), float(yVals[i]), float(zVals[i]))
 
@@ -343,49 +354,69 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     fIn = open(inPath, 'r')
     lines = fIn.readlines()
     fIn.close()
+
+    # lists to hold coordinates
     xVals = []
     yVals = []
     zVals = []
 
+    # for every maximum in the file, add the coords
     for x in range(1, len(lines)):
       if lines[x].strip().split(', ')[7] == 'MIN':
         xVals.append(lines[x].strip().split(', ')[2])
         yVals.append(lines[x].strip().split(', ')[3])
         zVals.append(lines[x].strip().split(', ')[4])
+
+    # create a node to hold fiducials
     m = slicer.vtkMRMLMarkupsFiducialNode()
     m.SetName(self.minimumPointsName)
     slicer.mrmlScene.AddNode(m)
     slicer.util.saveNode(m, self.minimumPointsPath)
 
+    # add a fiducial at each coordinate location
     for i in range(len(xVals)):
       m.AddFiducial(float(xVals[i]), float(yVals[i]), float(zVals[i]))
 
   # ------------------- process functions -------------------------------------
 
   def convertSegmentationToBinaryLabelmap(self, segNode):
+    '''A function to take in a node which stores a segmentation, and output the
+    segmentation as a binary labelmap node. '''
     segmentation = segNode.GetSegmentation()
     colSeg = None
     notColSeg = None
 
+    # check both segments in segmentation ('colon' and 'notColon')
     for x in range(2):
       segment = segmentation.GetNthSegment(x)
+      # 'colon' fits this requirement
       if len(segment.GetName()) < 7:
         colSeg = segment
+      # 'notColon' fits this requirement
       elif len(segment.GetName()) > 6:
         notColSeg = segment
 
     segmentation.RemoveSegment(notColSeg)
 
+    # make the bin label map node
     colonBinLabelMapNode = slicer.vtkMRMLLabelMapVolumeNode()
     slicer.mrmlScene.AddNode(colonBinLabelMapNode)
+
+    # export the segmentation node to the binary label map node
     slicer.vtkSlicerSegmentationsModuleLogic.ExportAllSegmentsToLabelmapNode(segNode, colonBinLabelMapNode)
     logging.info('Removed non colon, created binary labelmap.')
     return colonBinLabelMapNode
 
 
   def genCenterPoints(self, binLabelMapNode, tag='Sup'):
+    '''A function to use the Extract Skeleton module to generate a set
+    of center points along the centerline of the colon. They will be saved
+    to file. '''
+
+    # a parameters dict that will be passed to the extract skeleton module.
     pars = {}
     pars["InputImageFileName"] = binLabelMapNode.GetID()
+
     # create a markups fiducial node and name it, set it as the output
     fidsOut = slicer.vtkMRMLMarkupsFiducialNode()
     fidsOut.SetName('TEST0007_{}CenterPoints'.format(tag))
@@ -409,17 +440,23 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
   def fitCurve(self, fidsNode):
     '''A function to return a curve model from a fiducial list node
     with specific parameters for this project. '''
+
     logging.info('Fitting curve to center points...')
+
+    # create the logic node
     markupsToModelNode = slicer.vtkMRMLMarkupsToModelNode()
     markupsToModelNode.SetName('MyMarkupsToModelNode')
     slicer.mrmlScene.AddNode(markupsToModelNode)
 
+    # link the input
     markupsToModelNode.SetAndObserveInputNodeID(fidsNode.GetID())
 
+    # make the output node
     outputCurveNode = slicer.vtkMRMLModelNode()
     slicer.mrmlScene.AddNode(outputCurveNode)
     outputCurveNode.SetName(self.curveName)
 
+    # Link the ouput and update the curve with parameters below
     markupsToModelNode.SetAndObserveModelNodeID(outputCurveNode.GetID())
     markupsToModelNode.SetModelType(1)
     markupsToModelNode.SetModelType(1)
@@ -428,71 +465,99 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
     markupsToModelNode.SetPolynomialOrder(2)
     markupsToModelNode.SetPolynomialSampleWidth(0.05)
     markupsToModelNode.SetTubeRadius(0)
+
     logging.info('Fitted curve to center points. ')
 
     return outputCurveNode
 
 
   def makeCurvaturesFile(self, curveNode):
+    '''A function to use Curve Maker to calculate the curvature at every point,
+    and to write that curvature to a text data file. '''
+
     logging.info("Computing and writing curvatures...")
+
+    # get the point data from the model
     polyData = curveNode.GetPolyData()
+
+    # initiate curve maker logic
     import CurveMaker
     CurveMaker.CurveMakerLogic()
+    # an array to hold the resulting curvatures
     curvatureArray = vtk.vtkDoubleArray()
 
+    # run the computeCurvatures function, and get the stats that are returned
     avgCurve, minCurve, maxCurve = CurveMaker.CurveMakerLogic().computeCurvatures(polyData, curvatureArray)
 
+    # add the curvature data as a scalar to the curve model
     polyData.GetPointData().AddArray(curvatureArray)
     curveDisplayNode = curveNode.GetDisplayNode()
 
+    # activate this scalar in its dispay node
     curveDisplayNode.SetActiveScalarName('Curvature')
     curveDisplayNode.SetScalarVisibility(1)
 
+    # get the curvature values from the array
     curvatureList = [curvatureArray.GetTuple1(x) for x in range(curvatureArray.GetNumberOfTuples())]
     stringCurvatureList = [str(x) for x in curvatureList]
 
     points = polyData.GetPoints()
     pointList = [points.GetPoint(x) for x in range(points.GetNumberOfPoints())]
 
+    # prepare the data to be outputed to a text file
     newLines = [stringCurvatureList[x] + ', ' + str(pointList[x][0]) + ', ' + str(pointList[x][1]) + ', ' + str(
       pointList[x][2]) + '\n' for x in range(len(pointList))]
     newLines.append("\n")
 
+    # write the lines of data to a text file
     outPath = self.curvaturesPath
     print(outPath)
     outFile = open(outPath, 'w')
     outFile.writelines(newLines)
     outFile.close()
+
     logging.info("Saved curvatures.")
 
   def makeCutPointsFile(self, fidsNode):
+    '''A function that takes the fiducial node containing cut points,
+    and it saves a text file with the coordinate data there for later use. '''
+
     outPath = self.cutPointsPath
     fOut = open(outPath, 'w')
+
+    # for both points:
     for x in range(2):
       pos = np.zeros(3)
       fidsNode.GetNthFiducialPosition(x, pos)
       fOut.write('{},{},{}\n'.format(pos[0], pos[1], pos[2]))
+
     fOut.close()
 
-  def addDetails(self, inPath, outPath): # TODO test that this works
+  def addDetails(self, inPath, outPath):
     '''A function that takes the path of a text file and creates a new text file with the point number,
         and the percentage of how far the point is along the list. Easy to import to Excel'''
+
     inFile = open(inPath, 'r')
     lines = inFile.readlines()
     inFile.close()
+
     lines = [x.strip().split(', ') for x in lines]
+
     outFile = open(outPath, 'w')
     outFile.write(inPath[-26:] + "\n")
+
     for count, item in enumerate(lines):
         if item != '' and item != "\n" and item != ['']:
+            # (pointNum, % of length, x, y, z, curvature)
             outFile.write(
                 '{}, {}, {}, {}, {}, {}'.format(count,  100 * count / (len(lines) - 2), item[1], item[2], item[3],
                                                 item[0]) + '\n') # it was count / (len(lines) - 2) * 100
     outFile.close()
 
-  def getSumCurvatures(self, curvaturesList, width): # TODO test that this works
+  def getSumCurvatures(self, curvaturesList, width):
     '''A function which takes a list, and it returns a new list of equal length, where each value corresponds
     to the same indexed value in the first list, plus the all the items 'width' positions up and down the list.'''
+
     sumList = []
     for x in range(len(curvaturesList)):
       subList = (curvaturesList[max(x - width, 0): min(x + width + 1, len(curvaturesList))])
@@ -500,7 +565,7 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
       sumList.append(sum(subList))
     return sumList
 
-  def addSumCurvaturesToDataFile(self, inPath, width=10): # TODO test that this works
+  def addSumCurvaturesToDataFile(self, inPath, width=10):
       '''A fucntion to modify a detailed data file with curvatures, by adding a column
       that contains the sum of curvatures in a given interval for every point '''
       fIn = open(inPath, 'r')
