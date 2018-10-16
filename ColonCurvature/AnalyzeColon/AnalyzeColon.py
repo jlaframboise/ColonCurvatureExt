@@ -567,39 +567,50 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
 
   def addSumCurvaturesToDataFile(self, inPath, width=10):
       '''A fucntion to modify a detailed data file with curvatures, by adding a column
-      that contains the sum of curvatures in a given interval for every point '''
+      that contains the sum of curvatures in a given interval for every point.
+      It applies the getSumCurvatures function. '''
+
       fIn = open(inPath, 'r')
       lines = fIn.readlines()
       fIn.close()
       title = lines[0].strip()
 
+      # read the values
       curvatureValues = [x.strip().split(', ')[5] for x in lines[1:]]
+
+      # calculate the summed values
       sumCurvatureValues = self.getSumCurvatures(curvatureValues, width)
       newLines = [title] + [lines[x].strip() + ', ' + str(sumCurvatureValues[x - 1]) for x in
                             range(1, len(sumCurvatureValues) + 1)]
+      # write all the data back to file
       fOut = open(inPath, 'w')
       for line in newLines:
           fOut.write(line + '\n')
       fOut.close()
 
   def addSumCurvatureMaxMinsToDataFile(self, inPath, minPointDist=0, threshold=1, minThresholdBoost=1.5):
-    '''A function to add a column to the data file whihc indicates if the point is at a max or a min. '''
+    '''A function to add a column to the data file which indicates if the point is at a max or a min. '''
     fIn = open(inPath, 'r')
     lines = fIn.readlines()
     fIn.close()
     title = lines[0].strip()
+
+    # get the curvature values
     sumCurvatureValues = [x.strip().split(', ')[6] for x in lines[1:]]
     sumCurvatureValues = [float(y) for y in sumCurvatureValues]
+
+    # find local minimas and maximas
     locMaximas = self.findLocalMaximas(sumCurvatureValues, minPointDist, threshold)
     locMinimas = self.findLocalMinimas(sumCurvatureValues, minPointDist,
                                   threshold * minThresholdBoost)  # The minimas are currently being held at a higher threshold so the maximas are unClustered more.
 
-    # print('Calling unCluster!')
+    # remove clustered max/mins
     locMinimas, locMaximas = self.unCluster(locMinimas, locMaximas, sumCurvatureValues)
 
-    # xVals = [x.strip().split(', ')[0] for x in lines[1:]]
-    # xVals = [int(x) for x in xVals]
+    # add the max or mins to the list of lines to be written to file
     locExtremesColumn = []
+    # for every line, if its curvature and point number is in the max list or min list,
+    # add the correct label to the extreme column, else add 0
     for x in range(1, len(lines)):
       t = (x, sumCurvatureValues[x - 1])
       if t in locMaximas:
@@ -610,6 +621,8 @@ class AnalyzeColonLogic(ScriptedLoadableModuleLogic):
         locExtremesColumn.append('0')
     newLines = [title] + [lines[x].strip() + ', ' + str(locExtremesColumn[x - 1]) for x in
                           range(1, len(locExtremesColumn) + 1)]
+
+    # write the columns to file, with the new max/min column
     fOut = open(inPath, 'w')
     for line in newLines:
       fOut.write(line + '\n')
